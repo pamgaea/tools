@@ -2,25 +2,23 @@
 # frozen_string_literal: true
 
 require 'aws-sdk-s3'
+require 'json'
 
 class MultipartUploader
   PART_SIZE = 1024 * 1024 * 15 # 15MB
 
-  def initialize(filepath:, bucket:, key:, region:, upload_id: nil, upload_start: 1, upload_parts: [])
+  def initialize(filepath:, bucket:, key:, region:, upload_id: nil)
     @filepath = filepath
     @bucket = bucket
     @key = key
     @region = region
-
     @upload_id = upload_id
-    @upload_start = upload_start
-    @upload_parts = symbolize_parts(upload_parts)
   end
 
   def run
-    file = File.open(@filepath, 'r')
+    upload_start = 1
+    upload_parts = []
 
-    # Create a multi-part upload if necessary. Otherwise resume an existing one.
     if @upload_id.nil?
       puts "Creating a multi-part upload."
       response = create_multipart_upload
@@ -29,9 +27,13 @@ class MultipartUploader
     else
       puts "Resuming an existing multi-part upload."
       puts "-- multi-part upload id: #{@upload_id}"
-      puts "-- upload start: #{@upload_start}"
-      puts "-- parts: #{@upload_parts}"
+      puts "Retrieving upload information..."
+      upload_start, upload_parts = retrieve_upload_tracker
+      puts "-- upload start: #{upload_start}"
+      puts "-- parts: #{upload_parts}"
     end
+
+    file = File.open(@filepath, 'r')
 
     puts "\n"
     puts "Scrubbing to the last uploaded part, then starting upload..."
@@ -42,12 +44,12 @@ class MultipartUploader
 
       puts "-- uploaded part #{part_number}, etag: #{upload_response.etag}"
       last_uploaded_part = part_number
-      @upload_parts << { etag: upload_response.etag.gsub("\"", ""), part_number: part_number }
+      upload_parts << { etag: upload_response.etag.gsub("\"", ""), part_number: part_number }
     end
 
     puts "\n"
     puts "Completing multi-part upload."
-    complete_multipart_upload
+    complete_multipart_upload(upload_parts)
 
     puts "\n\n"
     puts "Multi-part Upload Done!"
@@ -55,8 +57,10 @@ class MultipartUploader
   ensure
     file.close
 
+    save_uploaded_parts(upload_parts)
+
     puts "\n\n"
-    puts "Parts #{@upload_parts.to_json.inspect}"
+    puts "Parts #{upload_parts.to_json.inspect}"
     puts "Upload ID: #{@upload_id.inspect}"
     puts "Last Upload Part: #{last_uploaded_part.inspect}."
   end
@@ -86,12 +90,12 @@ class MultipartUploader
     )
   end
 
-  def complete_multipart_upload
+  def complete_multipart_upload(parts)
     s3_client.complete_multipart_upload(
       bucket: @bucket,
       key: @key,
       upload_id: @upload_id,
-      multipart_upload: { parts: @upload_parts },
+      multipart_upload: { parts: parts },
     )
   end
 
@@ -109,6 +113,22 @@ class MultipartUploader
     parts.map do |part|
       part.map { |k, v| [k.to_sym, v] }.to_h
     end
+  end
+
+  def save_uploaded_parts(parts)
+    File.open(uploaded_parts_filepath, 'w') do |file|
+      file.write(parts.to_json)
+    end
+  end
+
+  def retrieve_upload_tracker
+    uploaded_parts = JSON.parse(File.read(uploaded_parts_filepath))
+    upload_start = uploaded_parts.map { |part| part[:part_number].to_i }.sort.last + 1
+    [upload_start, uploaded_parts]
+  end
+
+  def uploaded_parts_filepath
+    @upload_tracker_filepath ||= "uploaded_parts/#{@key}.txt"
   end
 
   def s3_client

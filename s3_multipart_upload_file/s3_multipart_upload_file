@@ -1,7 +1,6 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require 'json'
 require 'optparse'
 require_relative './multipart_uploader'
 
@@ -28,26 +27,14 @@ OptionParser.new do |opts|
   opts.on("--upload-id=UPLOAD_ID", "The Upload ID of the S3 MultipartUpload. Optional") do |upload_id|
     options[:s3_multipart_upload_id] = upload_id
   end
-
-  opts.on("--upload-start=UPLOAD_START", "The index where the MultipartUpload should start. Required if upload_id is set.") do |upload_start|
-    options[:s3_multipart_upload_start] = upload_start
-  end
-
-  opts.on("--upload-parts=PARTS", "The already uploaded parts (if it exists). Required if upload_id is set") do |parts|
-    options[:s3_multipart_upload_parts] = parts
-  end
 end.parse!
 
 upload_id = options[:s3_multipart_upload_id] || nil
-upload_start = (options[:s3_multipart_upload_start] || 1).to_i
-upload_parts = JSON.parse(options[:s3_multipart_upload_parts] || "[]")
 uploader = MultipartUploader.new(
   filepath: options[:file],
   bucket: options[:s3_bucket],
   key: options[:s3_key],
   region: options[:s3_region],
   upload_id: upload_id,
-  upload_start: upload_start,
-  upload_parts: upload_parts,
 )
 uploader.run
