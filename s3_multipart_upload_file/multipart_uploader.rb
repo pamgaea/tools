@@ -5,7 +5,7 @@ require 'aws-sdk-s3'
 require 'json'
 
 class MultipartUploader
-  PART_SIZE = 1024 * 1024 * 15 # 15MB
+  PART_SIZE = 1024 * 1024 * 500 # 500MB
 
   def initialize(filepath:, bucket:, key:, region:, upload_id: nil)
     @filepath = filepath
