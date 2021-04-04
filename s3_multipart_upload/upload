@@ -1,0 +1,40 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'optparse'
+require_relative './multipart_uploader'
+
+options = { }
+OptionParser.new do |opts|
+  opts.banner = "Usage: #{$0} [http_method] uri [options]"
+
+  opts.on("--file=FILE", "The file to be uploaded") do |file|
+    options[:file] = file
+  end
+
+  opts.on("--bucket=BUCKET", "The S3 Bucket") do |bucket|
+    options[:s3_bucket] = bucket
+  end
+
+  opts.on("--key=KEY", "The S3 Key") do |key|
+    options[:s3_key] = key
+  end
+
+  opts.on("--region=REGION", "The Region of the S3 Bucket") do |region|
+    options[:s3_region] = region
+  end
+
+  opts.on("--upload-id=UPLOAD_ID", "The Upload ID of the S3 MultipartUpload. Optional") do |upload_id|
+    options[:s3_multipart_upload_id] = upload_id
+  end
+end.parse!
+
+upload_id = options[:s3_multipart_upload_id] || nil
+uploader = MultipartUploader.new(
+  filepath: options[:file],
+  bucket: options[:s3_bucket],
+  key: options[:s3_key],
+  region: options[:s3_region],
+  upload_id: upload_id,
+)
+uploader.run
