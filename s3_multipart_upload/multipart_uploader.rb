@@ -7,12 +7,13 @@ require 'json'
 class MultipartUploader
   PART_SIZE = 1024 * 1024 * 500 # 500MB
 
-  def initialize(filepath:, bucket:, key:, region:, upload_id: nil)
+  def initialize(filepath:, bucket:, key:, region:, upload_id: nil, object_params: {})
     @filepath = filepath
     @bucket = bucket
     @key = key
     @region = region
     @upload_id = upload_id
+    @object_params = object_params
   end
 
   def run
@@ -23,7 +24,7 @@ class MultipartUploader
       puts "Creating a multi-part upload."
       response = create_multipart_upload
       @upload_id = response.upload_id
-      puts "-- multi-part upload id: #{upload_id}"
+      puts "-- multi-part upload id: #{@upload_id}"
     else
       puts "Resuming an existing multi-part upload."
       puts "-- multi-part upload id: #{@upload_id}"
@@ -38,7 +39,7 @@ class MultipartUploader
     puts "\n"
     puts "Scrubbing to the last uploaded part, then starting upload..."
     last_uploaded_part = nil
-    read_file_parts(file) do |part_number|
+    read_file_parts(file, upload_start: upload_start) do |part_number|
       puts "Uploading part #{part_number}"
       upload_response = upload_part(part_number, file.read(PART_SIZE))
 
@@ -67,7 +68,7 @@ class MultipartUploader
 
   private
 
-  def read_file_parts(file)
+  def read_file_parts(file, upload_start:)
     part_number = 1
     until file.eof?
       if part_number < upload_start
@@ -82,20 +83,27 @@ class MultipartUploader
   end
 
   def create_multipart_upload
-    s3_client.create_multipart_upload(
+    params = {
       bucket: @bucket,
       key: @key,
       content_type: "application/zip",
       content_disposition: "attachment; filename=$#{File.basename(@filepath)}"
-    )
+    }
+
+    if !@object_params[:content_type].nil?
+      params[:content_type] = @object_params[:content_type]
+    end
+
+    s3_client.create_multipart_upload(params)
   end
 
   def complete_multipart_upload(parts)
+    formatted_parts = symbolize_and_format_parts(parts)
     s3_client.complete_multipart_upload(
       bucket: @bucket,
       key: @key,
       upload_id: @upload_id,
-      multipart_upload: { parts: parts },
+      multipart_upload: { parts: formatted_parts },
     )
   end
 
@@ -109,9 +117,14 @@ class MultipartUploader
     )
   end
 
-  def symbolize_parts(parts)
+  def symbolize_and_format_parts(parts)
     parts.map do |part|
-      part.map { |k, v| [k.to_sym, v] }.to_h
+      etag = part[:etag] || part['etag']
+      part_number = part[:part_number] || part['part_number']
+      {
+        etag: "#{etag.inspect}",
+        part_number: part_number,
+      }
     end
   end
 
@@ -123,12 +136,12 @@ class MultipartUploader
 
   def retrieve_upload_tracker
     uploaded_parts = JSON.parse(File.read(uploaded_parts_filepath))
-    upload_start = uploaded_parts.map { |part| part[:part_number].to_i }.sort.last + 1
+    upload_start = uploaded_parts.map { |part| part['part_number'].to_i }.sort.last + 1
     [upload_start, uploaded_parts]
   end
 
   def uploaded_parts_filepath
-    @upload_tracker_filepath ||= "uploaded_parts/#{@key}.txt"
+    @upload_tracker_filepath ||= "uploaded_parts/#{File.basename(@filepath)}.txt"
   end
 
   def s3_client

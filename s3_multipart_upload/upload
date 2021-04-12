@@ -20,6 +20,10 @@ OptionParser.new do |opts|
     options[:s3_key] = key
   end
 
+  opts.on("--content-type=CONTENT_TYPE", "The Content Type") do |content_type|
+    options[:content_type] = content_type
+  end
+
   opts.on("--region=REGION", "The Region of the S3 Bucket") do |region|
     options[:s3_region] = region
   end
@@ -36,5 +40,8 @@ uploader = MultipartUploader.new(
   key: options[:s3_key],
   region: options[:s3_region],
   upload_id: upload_id,
+  object_params: {
+    content_type: options[:content_type],
+  }
 )
 uploader.run
